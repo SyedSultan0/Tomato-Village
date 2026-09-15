@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Dataset / images
+Variant-a(Multiclass Classification)/
+data/
+
+# Model files
+*.pkl
+*.pth
+
+# Backend uploads
+backend/uploads/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
