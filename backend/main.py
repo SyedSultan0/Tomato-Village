@@ -25,7 +25,7 @@ from advisory_engine import generate_advisory
 from monitoring_engine import compare_reports
 from escalation_engine import decide_escalation
 from knowledge_retrieval import retrieve_evidence
-
+from explanation_engine import generate_explanation
 
 
 from database import (
@@ -143,7 +143,7 @@ def health_check():
 # ============================================================
 
 @app.post("/predict", response_model=PredictionResponse)
-async def predict_disease(
+def predict_disease(
     file: UploadFile = File(...)
 ):
 
@@ -167,7 +167,7 @@ async def predict_disease(
             detail="Only JPEG, PNG and WEBP images are allowed."
         )
 
-    image_bytes = await file.read()
+    image_bytes = file.file.read()
 
     if not image_bytes:
 
@@ -579,7 +579,54 @@ def _build_escalation(
         current_report=current_snapshot,
         comparison=comparison
     )
+def _validate_comparison_linkage(
+    db: Session,
+    original_report_id: int,
+    follow_up_report_id: int
+):
+    """
+    Re-verify at read time that two linked reports belong to the
+    same farm and crop season.
 
+    The write path already validates this when a FollowUp row is
+    created, so this is defense-in-depth.
+    """
+
+    original_report = (
+        db.query(HealthReport)
+        .filter(HealthReport.id == original_report_id)
+        .first()
+    )
+
+    follow_up_report = (
+        db.query(HealthReport)
+        .filter(HealthReport.id == follow_up_report_id)
+        .first()
+    )
+
+    if not original_report or not follow_up_report:
+        raise HTTPException(
+            status_code=404,
+            detail="One of the linked health reports was not found."
+        )
+
+    if original_report.farm_id != follow_up_report.farm_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The two linked reports belong to different farms. "
+                "Comparison is not meaningful."
+            )
+        )
+
+    if original_report.crop_season_id != follow_up_report.crop_season_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The two linked reports belong to different crop "
+                "seasons. Comparison is not meaningful."
+            )
+        )
 # ============================================================
 # EVIDENCE HELPERS
 # ============================================================
@@ -643,13 +690,93 @@ def _build_evidence_for_report(
         )
 
         return []
-    
+
+
+def _build_explanation_for_report(
+    db: Session,
+    health_report_id: int
+):
+    """
+    Build a farmer-friendly explanation for a health report.
+
+    Assembles already-determined facts from the report's
+    prediction, risk, advisory, escalation, and evidence,
+    then hands them to the explanation engine.
+
+    Deterministic callers only — no decision-making here.
+    """
+
+    prediction_record = (
+        db.query(AIPrediction)
+        .filter(
+            AIPrediction.health_report_id == health_report_id
+        )
+        .order_by(desc(AIPrediction.created_at))
+        .first()
+    )
+
+    risk_record = (
+        db.query(RiskAssessment)
+        .filter(
+            RiskAssessment.health_report_id == health_report_id
+        )
+        .order_by(desc(RiskAssessment.created_at))
+        .first()
+    )
+
+    advisory_record = (
+        db.query(Advisory)
+        .filter(
+            Advisory.health_report_id == health_report_id
+        )
+        .order_by(desc(Advisory.created_at))
+        .first()
+    )
+
+    if not prediction_record or not risk_record:
+        return None
+
+    prediction = {
+        "predicted_class": prediction_record.predicted_class,
+        "confidence": prediction_record.confidence,
+    }
+
+    risk = {
+        "risk_level": risk_record.risk_level,
+        "risk_score": risk_record.risk_score,
+    }
+
+    advisory = {
+        "summary": advisory_record.advisory_text
+            if advisory_record else None,
+        "immediate_actions": [],
+        "prevention": [],
+        "monitoring": [],
+    }
+
+    escalation = _build_escalation(
+        db,
+        health_report_id,
+    ) or {}
+
+    evidence = _build_evidence_for_report(
+        db,
+        health_report_id,
+    )
+
+    return generate_explanation(
+        prediction=prediction,
+        risk=risk,
+        advisory=advisory,
+        escalation=escalation,
+        evidence=evidence,
+    )
 # ============================================================
 # HEALTH REPORT
 # ============================================================
 
 @app.post("/health-reports")
-async def create_health_report(
+def create_health_report(
     farm_id: int,
     crop_season_id: int,
     file: UploadFile = File(...),
@@ -674,7 +801,7 @@ async def create_health_report(
             detail="Only JPEG, PNG and WEBP images are allowed."
         )
 
-    image_bytes = await file.read()
+    image_bytes = file.file.read()
 
     if not image_bytes:
 
@@ -884,7 +1011,7 @@ async def create_health_report(
 
     try:
 
-        weather_data = await get_weather(
+        weather_data = get_weather(
             farm.latitude,
             farm.longitude
         )
@@ -1717,8 +1844,16 @@ def get_health_report(
         comparison=escalation_comparison
     )
 
-    return response
+    # --------------------------------------------------------
+    # Explanation (optional natural-language layer)
+    # --------------------------------------------------------
 
+    response["explanation"] = _build_explanation_for_report(
+        db,
+        health_report.id
+    )
+
+    return response
 
 # ============================================================
 # FARM HEALTH HISTORY
@@ -2288,7 +2423,11 @@ def get_health_report_comparison(
     # --------------------------------------------------------
     # Build snapshots
     # --------------------------------------------------------
-
+    _validate_comparison_linkage(
+        db,
+        original_report_id,
+        follow_up_report_id
+    )
     original_snapshot = _build_report_snapshot(
         db,
         original_report_id

@@ -236,7 +236,7 @@ def _build_observation(
             "The environmental risk score has decreased."
         )
 
-    elif flags["risk_unchanged"]:
+    elif flags["risk_unchanged"] and not flags["risk_level_changed"]:
 
         parts.append(
             "The environmental risk score is essentially "
