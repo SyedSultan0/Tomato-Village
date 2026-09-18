@@ -24,6 +24,9 @@ from risk_engine import calculate_risk
 from advisory_engine import generate_advisory
 from monitoring_engine import compare_reports
 from escalation_engine import decide_escalation
+from knowledge_retrieval import retrieve_evidence
+
+
 
 from database import (
     SessionLocal,
@@ -577,7 +580,70 @@ def _build_escalation(
         comparison=comparison
     )
 
+# ============================================================
+# EVIDENCE HELPERS
+# ============================================================
 
+def _build_evidence_for_report(
+    db: Session,
+    health_report_id: int
+):
+    """
+    Retrieve stored knowledge evidence for the condition and
+    risk level associated with a health report.
+
+    Deterministic and read-only.
+
+    Does NOT:
+        - recalculate risk
+        - change the advisory
+        - decide escalation
+        - call an LLM
+
+    Returns:
+        A list of evidence dicts (may be empty) or None if the
+        report does not have enough information yet.
+    """
+
+    prediction_record = (
+        db.query(AIPrediction)
+        .filter(
+            AIPrediction.health_report_id == health_report_id
+        )
+        .order_by(desc(AIPrediction.created_at))
+        .first()
+    )
+
+    risk_record = (
+        db.query(RiskAssessment)
+        .filter(
+            RiskAssessment.health_report_id == health_report_id
+        )
+        .order_by(desc(RiskAssessment.created_at))
+        .first()
+    )
+
+    if not prediction_record or not risk_record:
+        return None
+
+    try:
+
+        return retrieve_evidence(
+            db=db,
+            condition_name=prediction_record.predicted_class,
+            risk_level=risk_record.risk_level,
+            crop_name="Tomato",
+        )
+
+    except Exception as e:
+
+        print(
+            "Evidence retrieval failed:",
+            str(e)
+        )
+
+        return []
+    
 # ============================================================
 # HEALTH REPORT
 # ============================================================
@@ -1214,6 +1280,19 @@ async def create_health_report(
 
         response["advisory"]["error"] = advisory_error
 
+    # --------------------------------------------------------
+    # Evidence (knowledge-layer support for the advisory)
+    # --------------------------------------------------------
+
+    if advisory_record:
+
+        response["advisory"]["evidence"] = (
+            _build_evidence_for_report(
+                db,
+                health_report.id
+            )
+        )
+
     return response
 
 
@@ -1560,7 +1639,11 @@ def get_health_report(
             "model_name": advisory_record.model_name,
             "model_version": advisory_record.model_version,
             "sources": advisory_record.sources,
-            "created_at": advisory_record.created_at
+            "created_at": advisory_record.created_at,
+            "evidence": _build_evidence_for_report(
+                db,
+                health_report.id
+            )
         }
 
     # --------------------------------------------------------
