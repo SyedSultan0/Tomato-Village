@@ -1,0 +1,655 @@
+{
+  "_meta": {
+    "project": "Tomato-Village (SIH26131)",
+    "purpose": "Deterministic advisory lookup table: model_label + risk_level -> structured advisory.",
+    "schema_version": "1.0.0",
+    "risk_bands": {
+      "LOW": "0-24",
+      "MODERATE": "25-49",
+      "HIGH": "50-74",
+      "CRITICAL": "75-100"
+    },
+    "how_to_use": [
+      "1. Look up the advisory by (model_label, risk_level) from the RiskAssessment output.",
+      "2. Render summary + immediate_actions + prevention + monitoring to the farmer, in that order.",
+      "3. If ai_confidence < 0.70, render global.low_confidence_note.",
+      "4. Evaluate global.environmental_modifiers against the weather_snapshot fields available from the Risk Engine.",
+      "5. Render global.pesticide_safety_disclaimer whenever the selected advisory contains a pesticide, fungicide, insecticide, spray product, or dosage reference.",
+      "6. The AI prediction is not treated as expert confirmation. Expert confirmation is represented separately through the ExpertValidation workflow."
+    ],
+    "last_verified": "2026-09-16"
+  },
+  "advisories": [
+    {
+      "condition_id": "late_blight",
+      "model_label": "Late Blight",
+      "category": "disease",
+      "cause": "Phytophthora infestans (oomycete, favors cool + wet conditions)",
+      "source": "ICAR-IIVR / Indian Horticulture; TNAU Agritech Crop Protection Guide - Tomato",
+      "source_reference": [
+        "https://epubs.icar.org.in/index.php/IndHort/article/view/164935",
+        "https://agritech.tnau.ac.in/crop_protection/crop_pdf/tomato.pdf"
+      ],
+      "display_source": "ICAR / TNAU Agritech",
+      "risk_levels": {
+        "LOW": {
+          "summary": "Conditions currently unfavorable for late blight, but stay watchful during cool, humid spells.",
+          "immediate_actions": [
+            "No treatment needed at this time."
+          ],
+          "prevention": [
+            "Avoid overhead irrigation; prefer drip or early-morning watering.",
+            "Maintain field sanitation - remove old crop debris."
+          ],
+          "monitoring": [
+            "Re-check weekly, more often if weather turns cool and humid."
+          ],
+          "expert_referral": false
+        },
+        "MODERATE": {
+          "summary": "Environmental conditions are becoming favorable for late blight. Preventive action is worthwhile now.",
+          "immediate_actions": [
+            "Apply a preventive copper-based fungicide spray (e.g. copper oxychloride, approximately 2.5 g/L) if not already on a spray schedule.",
+            "Improve airflow - stake or prune dense canopy."
+          ],
+          "prevention": [
+            "Switch to drip/early-morning irrigation if using overhead sprinklers.",
+            "Remove nearby volunteer tomato/potato plants and nightshade weeds, which can harbor the pathogen."
+          ],
+          "monitoring": [
+            "Scout every 3-4 days for water-soaked leaf spots or dark, greasy stem lesions."
+          ],
+          "expert_referral": false
+        },
+        "HIGH": {
+          "summary": "Conditions strongly favor late blight development. Act promptly because this disease can spread rapidly under favorable weather.",
+          "immediate_actions": [
+            "Apply protective fungicide spray promptly, covering both leaf surfaces thoroughly.",
+            "Remove and destroy any visibly infected leaves - do not compost them.",
+            "Stop overhead irrigation; avoid working in the field while foliage is wet because this can aid disease spread."
+          ],
+          "prevention": [
+            "Plan for a resistant variety such as Arka Abhed or Arka Rakshak in the next planting cycle."
+          ],
+          "monitoring": [
+            "Scout daily. Check early morning when dew may make symptoms easier to observe."
+          ],
+          "expert_referral": true
+        },
+        "CRITICAL": {
+          "summary": "High environmental risk with an AI-detected late blight signal requires immediate attention.",
+          "immediate_actions": [
+            "Apply fungicide spray promptly with full coverage of both leaf surfaces, following the locally approved product label.",
+            "Rogue and destroy severely infected plants to slow spread.",
+            "Halt all overhead irrigation.",
+            "Contact the nearest KVK/agriculture extension officer for confirmation and locally approved treatment options if spread continues."
+          ],
+          "prevention": [
+            "Alert neighboring farms if reports cluster in the same area because late blight can spread rapidly between fields."
+          ],
+          "monitoring": [
+            "Check daily; reassess risk after each spray cycle."
+          ],
+          "expert_referral": true
+        }
+      }
+    },
+    {
+      "condition_id": "early_blight",
+      "model_label": "Early Blight",
+      "category": "disease",
+      "cause": "Alternaria solani (fungus, favors warm + wet/humid conditions)",
+      "source": "Michigan State University Extension - Organic Management of Early Blight on Tomato; TNAU Agritech Crop Protection Guide",
+      "source_reference": [
+        "https://www.canr.msu.edu/hausbeck/Uploads/PDF/FS_Organic-Management-of-Early-Blight-on-Tomato.pdf",
+        "https://agritech.tnau.ac.in/crop_protection/crop_pdf/tomato.pdf"
+      ],
+      "display_source": "Michigan State University Extension / TNAU Agritech",
+      "risk_levels": {
+        "LOW": {
+          "summary": "Low environmental favorability for early blight currently.",
+          "immediate_actions": [
+            "No treatment needed at this time."
+          ],
+          "prevention": [
+            "Start with disease-free seedlings.",
+            "Avoid planting in low-lying areas that stay wet."
+          ],
+          "monitoring": [
+            "Re-check weekly."
+          ],
+          "expert_referral": false
+        },
+        "MODERATE": {
+          "summary": "Warm, humid conditions are building - early blight risk is rising.",
+          "immediate_actions": [
+            "Begin scouting lower/older leaves for target-shaped brown lesions with concentric rings and a yellow halo."
+          ],
+          "prevention": [
+            "Use drip or early-morning irrigation to minimize leaf wetness duration.",
+            "Trellis indeterminate varieties to improve airflow."
+          ],
+          "monitoring": [
+            "Scout every 3-4 days, focusing on older/lower foliage first."
+          ],
+          "expert_referral": false
+        },
+        "HIGH": {
+          "summary": "Conditions favor active early blight development.",
+          "immediate_actions": [
+            "Remove and destroy visibly infected lower leaves.",
+            "Apply a labeled protectant fungicide if lesions are spreading.",
+            "Improve field sanitation - clear fallen infected leaf debris."
+          ],
+          "prevention": [
+            "Plan a multi-year rotation away from tomato, potato, eggplant, and pepper where practical because the pathogen can survive in plant debris."
+          ],
+          "monitoring": [
+            "Scout every 2-3 days; watch for lesions moving onto stems and fruit."
+          ],
+          "expert_referral": false
+        },
+        "CRITICAL": {
+          "summary": "Severe early blight risk with an AI-detected early blight signal; yield-loss risk from defoliation can become substantial.",
+          "immediate_actions": [
+            "Apply fungicide spray promptly, prioritizing full coverage of remaining healthy foliage and following the locally approved product label.",
+            "Remove heavily infected plant material.",
+            "Consult KVK/extension officer if defoliation is progressing rapidly or spreading to fruit."
+          ],
+          "prevention": [
+            "Consider resistant hybrids such as Arka Abhed or Arka Samrat for the next planting."
+          ],
+          "monitoring": [
+            "Check daily."
+          ],
+          "expert_referral": true
+        }
+      }
+    },
+    {
+      "condition_id": "leaf_miner",
+      "model_label": "Leaf Miner",
+      "category": "pest",
+      "cause": "Liriomyza spp. leaf miner flies; populations can increase under favorable warm conditions and repeated broad-spectrum insecticide use",
+      "source": "UC IPM Pest Management Guidelines - Tomato Leafminers; entomology literature on Liriomyza management",
+      "source_reference": [
+        "https://ipm.ucanr.edu/agriculture/tomato/leafminers/",
+        "https://www.entomoljournal.com/archives/2021/vol9issue2/PartN/9-1-164-765.pdf"
+      ],
+      "display_source": "UC IPM",
+      "risk_levels": {
+        "LOW": {
+          "summary": "Low pest pressure currently indicated.",
+          "immediate_actions": [
+            "No action needed."
+          ],
+          "prevention": [
+            "Deploy a few yellow sticky traps for early monitoring."
+          ],
+          "monitoring": [
+            "Check traps weekly."
+          ],
+          "expert_referral": false
+        },
+        "MODERATE": {
+          "summary": "Warm conditions may favor leaf miner population buildup - stay ahead with monitoring rather than unnecessary spraying.",
+          "immediate_actions": [
+            "Increase yellow sticky trap density across the field.",
+            "Remove and destroy heavily mined leaves by hand where feasible."
+          ],
+          "prevention": [
+            "Avoid unnecessary broad-spectrum insecticide use because it can kill natural parasitoids such as Diglyphus isaea and contribute to secondary pest problems."
+          ],
+          "monitoring": [
+            "Count mines per leaf on a sample of plants every 3-4 days."
+          ],
+          "expert_referral": false
+        },
+        "HIGH": {
+          "summary": "Leaf miner pressure may be high enough to threaten photosynthetic capacity in heavily affected foliage.",
+          "immediate_actions": [
+            "Consider a targeted, selective insecticide application only if mining exceeds the applicable local economic threshold; avoid broad-spectrum products.",
+            "Continue removing heavily mined leaves."
+          ],
+          "prevention": [
+            "Preserve natural enemy populations wherever possible as part of long-term control."
+          ],
+          "monitoring": [
+            "Scout every 2-3 days; track the trend, not just the current count."
+          ],
+          "expert_referral": false
+        },
+        "CRITICAL": {
+          "summary": "Severe infestation risk - inappropriate insecticide selection can worsen leaf miner management through resistance and loss of natural enemies.",
+          "immediate_actions": [
+            "Consult the local KVK/extension officer before selecting an insecticide because product choice and rotation matter for resistance management.",
+            "Remove severely mined foliage."
+          ],
+          "prevention": [
+            "Plan for integrated pest management and natural-enemy conservation in future cycles."
+          ],
+          "monitoring": [
+            "Daily check during an active outbreak."
+          ],
+          "expert_referral": true
+        }
+      }
+    },
+    {
+      "condition_id": "spotted_wilt_virus",
+      "model_label": "Spotted Wilt Virus",
+      "category": "disease",
+      "cause": "Tomato spotted wilt virus (TSWV), transmitted by thrips; there is no curative treatment once a plant is infected, so management focuses on vector control and prevention",
+      "source": "UC IPM Pest Management Guidelines - Tomato Spotted Wilt",
+      "source_reference": [
+        "https://ipm.ucanr.edu/agriculture/tomato/tomato-spotted-wilt/"
+      ],
+      "display_source": "UC IPM",
+      "risk_levels": {
+        "LOW": {
+          "summary": "Low current environmental risk, but TSWV is thrips-vectored so vigilance remains important.",
+          "immediate_actions": [
+            "No action needed."
+          ],
+          "prevention": [
+            "Monitor thrips with yellow or blue sticky traps as a routine practice."
+          ],
+          "monitoring": [
+            "Check traps weekly."
+          ],
+          "expert_referral": false
+        },
+        "MODERATE": {
+          "summary": "Thrips activity may be increasing - this is a vector-borne virus, so monitor the vector as well as environmental conditions.",
+          "immediate_actions": [
+            "Increase thrips monitoring frequency.",
+            "Inspect nearby weeds and volunteer plants, which can harbor both thrips and the virus."
+          ],
+          "prevention": [
+            "Avoid planting new seedlings near fields with recent TSWV reports."
+          ],
+          "monitoring": [
+            "Scout weekly for early symptoms such as bronzing or ring spots on leaves and wilting of young growth."
+          ],
+          "expert_referral": false
+        },
+        "HIGH": {
+          "summary": "Elevated environmental risk - active thrips management is warranted to help prevent further spread.",
+          "immediate_actions": [
+            "Begin active thrips management using traps and locally recommended targeted treatment where justified.",
+            "Scout the whole field, not just the reported plant, for additional symptomatic plants."
+          ],
+          "prevention": [
+            "Remove nearby weed hosts.",
+            "For future plantings, consider TSWV-resistant varieties with the Sw-5 gene if locally available."
+          ],
+          "monitoring": [
+            "Scout every 2-3 days."
+          ],
+          "expert_referral": false
+        },
+        "CRITICAL": {
+          "summary": "Because TSWV cannot be cured after infection, an AI-detected high-risk signal should trigger rapid field assessment before large-scale removal decisions.",
+          "immediate_actions": [
+            "Seek expert confirmation before large-scale rogueing; confirmed infected plants may need to be removed to reduce the virus reservoir.",
+            "Intensify thrips management across the field.",
+            "Inspect the surrounding crop and field margins for additional symptomatic plants and vector hosts."
+          ],
+          "prevention": [
+            "Source virus- and thrips-free transplants for replanting.",
+            "Control weeds around the field margin to reduce alternate hosts."
+          ],
+          "monitoring": [
+            "Daily check during active spread."
+          ],
+          "expert_referral": true
+        }
+      }
+    },
+    {
+      "condition_id": "magnesium_deficiency",
+      "model_label": "Magnesium Deficiency",
+      "category": "nutrient_deficiency",
+      "cause": "Common in sandy or acidic soils or where potassium fertilization is high because excessive potassium can antagonize magnesium uptake",
+      "source": "TNAU Agritech - Crop Production Guide (Horticulture 2020)",
+      "source_reference": [
+        "https://agritech.tnau.ac.in/pdf/HORTICULTURE.pdf"
+      ],
+      "display_source": "TNAU Agritech",
+      "risk_levels": {
+        "LOW": {
+          "summary": "Mild or early-stage visual signal; image-based classification alone does not establish soil magnesium status.",
+          "immediate_actions": [
+            "Monitor; no correction needed yet."
+          ],
+          "prevention": [
+            "Consider a soil test if this pattern recurs across seasons."
+          ],
+          "monitoring": [
+            "Re-check in 1-2 weeks."
+          ],
+          "expert_referral": false
+        },
+        "MODERATE": {
+          "summary": "Interveinal yellowing on older leaves is consistent with a developing magnesium-deficiency pattern, but soil or plant testing can help confirm the cause.",
+          "immediate_actions": [
+            "Consider a foliar magnesium sulfate (Epsom salt) correction, approximately 0.5-1% solution, only according to applicable local recommendations."
+          ],
+          "prevention": [
+            "Review recent potassium fertilizer inputs because excess K can suppress Mg uptake even when soil Mg is adequate."
+          ],
+          "monitoring": [
+            "Check for improvement in 1-2 weeks."
+          ],
+          "expert_referral": false
+        },
+        "HIGH": {
+          "summary": "Strong visual deficiency signal with potential for continued nutrient stress; confirm the underlying cause before making major fertilizer changes.",
+          "immediate_actions": [
+            "Consider foliar Mg correction promptly according to local crop-stage recommendations.",
+            "Review high-potassium fertilizer inputs if currently in use."
+          ],
+          "prevention": [
+            "Get a soil test to confirm the deficiency and establish a corrected fertilization plan."
+          ],
+          "monitoring": [
+            "Re-check in 1 week."
+          ],
+          "expert_referral": false
+        },
+        "CRITICAL": {
+          "summary": "Severe visual deficiency signal - prompt correction and confirmation are recommended to reduce potential yield impact.",
+          "immediate_actions": [
+            "Consider foliar Mg correction and, where appropriate, a follow-up soil application of magnesium sulfate based on soil-test and crop-stage guidance.",
+            "Review and correct the fertilization program with soil-test guidance."
+          ],
+          "prevention": [
+            "Rebalance the N-P-K-Mg fertilization plan for the remainder of the season."
+          ],
+          "monitoring": [
+            "Re-check in 1 week; escalate if there is no improvement."
+          ],
+          "expert_referral": true
+        }
+      }
+    },
+    {
+      "condition_id": "nitrogen_deficiency",
+      "model_label": "Nitrogen Deficiency",
+      "category": "nutrient_deficiency",
+      "cause": "Common with insufficient or leached nitrogen; symptoms often start on older/lower leaves",
+      "source": "TNAU Agritech - Crop Production Guide (Horticulture 2020)",
+      "source_reference": [
+        "https://agritech.tnau.ac.in/pdf/HORTICULTURE.pdf"
+      ],
+      "display_source": "TNAU Agritech",
+      "risk_levels": {
+        "LOW": {
+          "summary": "Mild or early-stage visual signal; image-based classification alone does not establish soil nitrogen status.",
+          "immediate_actions": [
+            "Monitor; no correction needed yet."
+          ],
+          "prevention": [
+            "Maintain the planned fertilization schedule."
+          ],
+          "monitoring": [
+            "Re-check in 1-2 weeks."
+          ],
+          "expert_referral": false
+        },
+        "MODERATE": {
+          "summary": "Uniform yellowing on older/lower leaves is consistent with a developing nitrogen-deficiency pattern, but other causes should be considered.",
+          "immediate_actions": [
+            "Consider a split nitrogen fertilizer application according to crop stage and locally recommended rates."
+          ],
+          "prevention": [
+            "Consider organic supplementation such as FYM or vermicompost to support sustained nutrient availability."
+          ],
+          "monitoring": [
+            "Check for greening and recovery in 7-10 days."
+          ],
+          "expert_referral": false
+        },
+        "HIGH": {
+          "summary": "Strong visual deficiency signal with potential stunted-growth risk if the underlying cause is not addressed.",
+          "immediate_actions": [
+            "Apply nitrogen correction promptly according to crop-stage recommendations, preferably split across applications rather than one excessive dose."
+          ],
+          "prevention": [
+            "Review irrigation practices because excessive irrigation can leach nitrogen, especially in sandy soils."
+          ],
+          "monitoring": [
+            "Re-check in 1 week."
+          ],
+          "expert_referral": false
+        },
+        "CRITICAL": {
+          "summary": "Severe visual deficiency signal - stunted growth and thin stems may already be visible.",
+          "immediate_actions": [
+            "Apply corrective nitrogen according to crop-stage and locally recommended guidance.",
+            "Get a soil test if the condition recurs or does not improve after correction."
+          ],
+          "prevention": [
+            "Rebalance the fertilization schedule for the remainder of the season."
+          ],
+          "monitoring": [
+            "Re-check in 1 week; escalate if there is no visible improvement."
+          ],
+          "expert_referral": true
+        }
+      }
+    },
+    {
+      "condition_id": "potassium_deficiency",
+      "model_label": "Potassium Deficiency",
+      "category": "nutrient_deficiency",
+      "cause": "Common in sandy or leached soils; symptoms can include marginal scorch on older leaves, weak stems, and poor fruit quality",
+      "source": "TNAU Agritech - Crop Production Guide (Horticulture 2020)",
+      "source_reference": [
+        "https://agritech.tnau.ac.in/pdf/HORTICULTURE.pdf"
+      ],
+      "display_source": "TNAU Agritech",
+      "risk_levels": {
+        "LOW": {
+          "summary": "Mild or early-stage visual signal; image-based classification alone does not establish soil potassium status.",
+          "immediate_actions": [
+            "Monitor; no correction needed yet."
+          ],
+          "prevention": [
+            "Maintain the planned fertilization schedule."
+          ],
+          "monitoring": [
+            "Re-check in 1-2 weeks."
+          ],
+          "expert_referral": false
+        },
+        "MODERATE": {
+          "summary": "Marginal leaf scorch on older leaves is consistent with a developing potassium-deficiency pattern, but confirmation is recommended before major fertilizer changes.",
+          "immediate_actions": [
+            "Apply potassium fertilizer according to soil-test and crop-stage recommendations."
+          ],
+          "prevention": [
+            "Consider a quick-response foliar KNO3 application only when appropriate under local crop recommendations."
+          ],
+          "monitoring": [
+            "Check for improvement in 7-10 days."
+          ],
+          "expert_referral": false
+        },
+        "HIGH": {
+          "summary": "Strong visual deficiency signal with potential fruit-quality risk if the underlying nutrient imbalance remains uncorrected during flowering or fruiting.",
+          "immediate_actions": [
+            "Apply potassium correction promptly according to soil-test and crop-stage guidance; foliar correction may be considered where locally recommended."
+          ],
+          "prevention": [
+            "Review magnesium status as well because K and Mg interact; correcting one without checking the other can contribute to imbalance."
+          ],
+          "monitoring": [
+            "Re-check in 1 week."
+          ],
+          "expert_referral": false
+        },
+        "CRITICAL": {
+          "summary": "Severe visual deficiency signal with potential weak-stem and poor-fruit-development risk.",
+          "immediate_actions": [
+            "Apply soil and/or foliar potassium correction according to soil-test and locally approved crop recommendations.",
+            "Get a soil test to guide the full-season fertilization plan."
+          ],
+          "prevention": [
+            "Rebalance the N-P-K fertilization plan for the remainder of the season."
+          ],
+          "monitoring": [
+            "Re-check in 1 week; escalate if there is no improvement."
+          ],
+          "expert_referral": true
+        }
+      }
+    },
+    {
+      "condition_id": "healthy",
+      "model_label": "Healthy",
+      "category": "healthy",
+      "cause": "No condition detected",
+      "source": "N/A - general good-practice guidance",
+      "source_reference": [],
+      "display_source": "General crop-health guidance",
+      "risk_levels": {
+        "LOW": {
+          "summary": "Plant appears healthy. Good time to reinforce preventive practices rather than react to a problem.",
+          "immediate_actions": [
+            "No action needed."
+          ],
+          "prevention": [
+            "Maintain the current irrigation and fertilization schedule.",
+            "Continue routine scouting because catching issues early is cheaper than treating them late."
+          ],
+          "monitoring": [
+            "Re-check in 1-2 weeks or after any notable weather change."
+          ],
+          "expert_referral": false
+        },
+        "MODERATE": {
+          "summary": "Plant appears healthy; environmental conditions are shifting, so this is a good time to double-check preventive practices.",
+          "immediate_actions": [
+            "No action needed."
+          ],
+          "prevention": [
+            "Review irrigation timing, with drip or early-morning watering preferred over overhead irrigation where practical.",
+            "Continue routine scouting."
+          ],
+          "monitoring": [
+            "Re-check in 1 week."
+          ],
+          "expert_referral": false
+        },
+        "HIGH": {
+          "summary": "Plant appears healthy despite environmental conditions that would favor disease in a susceptible plant - maintain preventive practices.",
+          "immediate_actions": [
+            "No action needed."
+          ],
+          "prevention": [
+            "Maintain sanitation and irrigation practices because current conditions may favor disease onset if vigilance drops."
+          ],
+          "monitoring": [
+            "Scout more frequently, approximately every 3-4 days, until conditions ease."
+          ],
+          "expert_referral": false
+        },
+        "CRITICAL": {
+          "summary": "Plant appears healthy despite high environmental favorability for disease - remain vigilant and monitor for changes.",
+          "immediate_actions": [
+            "No action needed for this plant."
+          ],
+          "prevention": [
+            "Maintain strict sanitation and irrigation discipline while conditions remain high-risk."
+          ],
+          "monitoring": [
+            "Scout daily until conditions ease."
+          ],
+          "expert_referral": false
+        }
+      },
+      "_note": "The current Risk Engine profile returns 0/LOW for Healthy. MODERATE/HIGH/CRITICAL rows are retained for schema completeness and future risk factors such as nearby cases, history, sensors, or crop context."
+    }
+  ],
+  "global": {
+    "low_confidence_note": "AI classification confidence for this report was below 70%. Treat the disease/condition label as provisional. We recommend uploading a clearer follow-up photo, or requesting Expert Validation, before acting on this advisory - especially before applying any chemical treatment.",
+    "pesticide_safety_disclaimer": "Product and dosage references in this advisory data are drawn from agricultural extension sources describing practices applicable at the time of writing. Registrations, approved uses, formulations, and recommendations can change and may vary by state. Verify the current product label and applicable registration information against the CIBRC (Central Insecticides Board & Registration Committee) and relevant agricultural extension guidance before recommending a specific product or dosage to a farmer.",
+    "environmental_modifiers": [
+      {
+        "id": "high_wind",
+        "parameter": "wind_speed",
+        "operator": ">",
+        "threshold": 15,
+        "unit": "km/h",
+        "note": "High wind detected - delay any spray application to reduce drift and poor coverage; wait for calmer conditions.",
+        "applies_to": "spray_or_fungicide_or_insecticide_advisories"
+      },
+      {
+        "id": "narrow_dewpoint_spread",
+        "parameter": "dewpoint_spread",
+        "calculation": "temperature - dew_point",
+        "operator": "<",
+        "threshold": 2,
+        "unit": "degrees_C",
+        "note": "A narrow dewpoint spread indicates that prolonged leaf wetness may occur overnight, which can favor fungal disease development.",
+        "applies_to_conditions": [
+          "late_blight",
+          "early_blight"
+        ]
+      },
+      {
+        "id": "high_cloud_cover",
+        "parameter": "cloud_cover",
+        "operator": ">=",
+        "threshold": 80,
+        "unit": "percent",
+        "note": "High cloud cover can slow foliage drying and prolong leaf wetness, which is relevant to blight risk and spray timing.",
+        "applies_to_conditions": [
+          "late_blight",
+          "early_blight"
+        ]
+      },
+      {
+        "id": "high_solar_radiation",
+        "parameter": "solar_radiation",
+        "operator": ">=",
+        "threshold": 700,
+        "unit": "W/m2",
+        "note": "High solar radiation following significant defoliation can increase sunscald risk on newly exposed fruit, particularly during fruiting.",
+        "applies_to_conditions": [
+          "late_blight",
+          "early_blight",
+          "leaf_miner"
+        ],
+        "requires_context": "significant_defoliation"
+      },
+      {
+        "id": "high_et0",
+        "parameter": "et0",
+        "operator": ">=",
+        "threshold": 5,
+        "unit": "mm/day",
+        "note": "High evapotranspiration indicates elevated crop water demand. Check actual soil moisture before assuming a nutrient-deficiency-like symptom is purely a fertility issue.",
+        "applies_to_conditions": [
+          "magnesium_deficiency",
+          "nitrogen_deficiency",
+          "potassium_deficiency"
+        ]
+      },
+      {
+        "id": "low_soil_temperature",
+        "parameter": "soil_temperature",
+        "operator": "<",
+        "threshold": 15,
+        "unit": "degrees_C",
+        "note": "Low soil temperature can slow nutrient uptake and may contribute to deficiency-like symptoms even when soil nutrient levels are adequate.",
+        "applies_to_conditions": [
+          "nitrogen_deficiency",
+          "potassium_deficiency",
+          "magnesium_deficiency"
+        ]
+      }
+    ]
+  }
+}
