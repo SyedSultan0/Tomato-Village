@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@import "leaflet/dist/leaflet.css";
+
+/* Base overrides */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+/* Leaflet dark-mode fix — pin icons */
+.leaflet-container {
+  background: #0f172a;
+}
