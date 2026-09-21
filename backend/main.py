@@ -26,7 +26,18 @@ from monitoring_engine import compare_reports
 from escalation_engine import decide_escalation
 from knowledge_retrieval import retrieve_evidence
 from explanation_engine import generate_explanation
-
+from expert_validation import (
+    validate_submission,
+    serialize_validation,
+)
+from expert_queue import build_review_queue
+from hotspots import find_hotspots
+from report_snapshots import (
+    _build_report_snapshot,
+    _build_escalation,
+    _build_evidence_for_report,
+    _build_explanation_for_report,
+)
 
 from database import (
     SessionLocal,
@@ -40,7 +51,8 @@ from database import (
     WeatherRecord,
     RiskAssessment,
     Advisory,
-    FollowUp
+    FollowUp,
+    ExpertValidation,
 )
 
 
@@ -69,6 +81,17 @@ def get_db():
     finally:
         db.close()
 
+def _build_expert_validations_for_report(
+    db: Session,
+    health_report_id: int,
+):
+    rows = (
+        db.query(ExpertValidation)
+        .filter(ExpertValidation.health_report_id == health_report_id)
+        .order_by(desc(ExpertValidation.validated_at))
+        .all()
+    )
+    return [serialize_validation(db, row) for row in rows]
 
 # ============================================================
 # RESPONSE MODELS
@@ -116,6 +139,11 @@ class FollowUpCreate(BaseModel):
     scheduled_date: date
     farmer_notes: str | None = None
 
+class ExpertValidationCreate(BaseModel):
+    expert_id: int
+    status: str
+    confirmed_condition: str | None = None
+    comments: str | None = None
 
 # ============================================================
 # BASIC ROUTES
@@ -466,119 +494,10 @@ def get_next_hour_rain_probability(weather_data):
 # MONITORING HELPERS
 # ============================================================
 
-def _build_report_snapshot(
-    db: Session,
-    report_id: int
-):
-    """
-    Build a plain dict snapshot of a health report for the
-    deterministic monitoring comparison engine.
-
-    Returns None if the report does not exist.
-    """
-
-    report = (
-        db.query(HealthReport)
-        .filter(HealthReport.id == report_id)
-        .first()
-    )
-
-    if not report:
-        return None
-
-    prediction_record = (
-        db.query(AIPrediction)
-        .filter(
-            AIPrediction.health_report_id == report.id
-        )
-        .order_by(desc(AIPrediction.created_at))
-        .first()
-    )
-
-    risk_record = (
-        db.query(RiskAssessment)
-        .filter(
-            RiskAssessment.health_report_id == report.id
-        )
-        .order_by(desc(RiskAssessment.created_at))
-        .first()
-    )
-
-    advisory_record = (
-        db.query(Advisory)
-        .filter(
-            Advisory.health_report_id == report.id
-        )
-        .order_by(desc(Advisory.created_at))
-        .first()
-    )
-
-    return {
-        "report_id": report.id,
-        "reported_at": report.reported_at,
-        "predicted_class": (
-            prediction_record.predicted_class
-            if prediction_record
-            else None
-        ),
-        "confidence": (
-            prediction_record.confidence
-            if prediction_record
-            else None
-        ),
-        "risk_score": (
-            risk_record.risk_score
-            if risk_record
-            else None
-        ),
-        "risk_level": (
-            risk_record.risk_level
-            if risk_record
-            else None
-        ),
-        "risk_engine_version": (
-            risk_record.calculation_method
-            if risk_record
-            else None
-        ),
-        "advisory_id": (
-            advisory_record.id
-            if advisory_record
-            else None
-        ),
-    }
-
-
 # ============================================================
 # ESCALATION HELPERS
 # ============================================================
 
-def _build_escalation(
-    db: Session,
-    current_report_id: int,
-    comparison: dict | None = None
-):
-    """
-    Build a deterministic escalation decision for a health report.
-
-    Escalation is computed from the current report snapshot and,
-    when available, the monitoring comparison.
-
-    No escalation state is persisted in the database.
-    """
-
-    current_snapshot = _build_report_snapshot(
-        db,
-        current_report_id
-    )
-
-    if not current_snapshot:
-        return None
-
-    return decide_escalation(
-        current_report=current_snapshot,
-        comparison=comparison
-    )
 def _validate_comparison_linkage(
     db: Session,
     original_report_id: int,
@@ -631,146 +550,6 @@ def _validate_comparison_linkage(
 # EVIDENCE HELPERS
 # ============================================================
 
-def _build_evidence_for_report(
-    db: Session,
-    health_report_id: int
-):
-    """
-    Retrieve stored knowledge evidence for the condition and
-    risk level associated with a health report.
-
-    Deterministic and read-only.
-
-    Does NOT:
-        - recalculate risk
-        - change the advisory
-        - decide escalation
-        - call an LLM
-
-    Returns:
-        A list of evidence dicts (may be empty) or None if the
-        report does not have enough information yet.
-    """
-
-    prediction_record = (
-        db.query(AIPrediction)
-        .filter(
-            AIPrediction.health_report_id == health_report_id
-        )
-        .order_by(desc(AIPrediction.created_at))
-        .first()
-    )
-
-    risk_record = (
-        db.query(RiskAssessment)
-        .filter(
-            RiskAssessment.health_report_id == health_report_id
-        )
-        .order_by(desc(RiskAssessment.created_at))
-        .first()
-    )
-
-    if not prediction_record or not risk_record:
-        return None
-
-    try:
-
-        return retrieve_evidence(
-            db=db,
-            condition_name=prediction_record.predicted_class,
-            risk_level=risk_record.risk_level,
-            crop_name="Tomato",
-        )
-
-    except Exception as e:
-
-        print(
-            "Evidence retrieval failed:",
-            str(e)
-        )
-
-        return []
-
-
-def _build_explanation_for_report(
-    db: Session,
-    health_report_id: int
-):
-    """
-    Build a farmer-friendly explanation for a health report.
-
-    Assembles already-determined facts from the report's
-    prediction, risk, advisory, escalation, and evidence,
-    then hands them to the explanation engine.
-
-    Deterministic callers only — no decision-making here.
-    """
-
-    prediction_record = (
-        db.query(AIPrediction)
-        .filter(
-            AIPrediction.health_report_id == health_report_id
-        )
-        .order_by(desc(AIPrediction.created_at))
-        .first()
-    )
-
-    risk_record = (
-        db.query(RiskAssessment)
-        .filter(
-            RiskAssessment.health_report_id == health_report_id
-        )
-        .order_by(desc(RiskAssessment.created_at))
-        .first()
-    )
-
-    advisory_record = (
-        db.query(Advisory)
-        .filter(
-            Advisory.health_report_id == health_report_id
-        )
-        .order_by(desc(Advisory.created_at))
-        .first()
-    )
-
-    if not prediction_record or not risk_record:
-        return None
-
-    prediction = {
-        "predicted_class": prediction_record.predicted_class,
-        "confidence": prediction_record.confidence,
-    }
-
-    risk = {
-        "risk_level": risk_record.risk_level,
-        "risk_score": risk_record.risk_score,
-    }
-
-    advisory = {
-        "summary": advisory_record.advisory_text
-            if advisory_record else None,
-        "immediate_actions": [],
-        "prevention": [],
-        "monitoring": [],
-    }
-
-    escalation = _build_escalation(
-        db,
-        health_report_id,
-    ) or {}
-
-    evidence = _build_evidence_for_report(
-        db,
-        health_report_id,
-    )
-
-    return generate_explanation(
-        prediction=prediction,
-        risk=risk,
-        advisory=advisory,
-        escalation=escalation,
-        evidence=evidence,
-    )
 # ============================================================
 # HEALTH REPORT
 # ============================================================
@@ -1606,7 +1385,9 @@ def get_health_report(
             "follow_up_id": None
         },
 
-        "escalation": None
+        "escalation": None,
+
+        "expert_validations": []
     }
 
     # --------------------------------------------------------
@@ -1852,6 +1633,7 @@ def get_health_report(
         db,
         health_report.id
     )
+    response["expert_validations"] = (_build_expert_validations_for_report(db, health_report.id))
 
     return response
 
@@ -2475,4 +2257,216 @@ def get_health_report_comparison(
         "comparison": comparison,
 
         "escalation": escalation
+    }
+
+
+
+# ============================================================
+# EXPERT VALIDATION
+# ============================================================
+
+@app.post("/health-reports/{report_id}/expert-validation")
+def create_expert_validation(
+    report_id: int,
+    payload: ExpertValidationCreate,
+    db: Session = Depends(get_db)
+):
+
+    result = validate_submission(
+        db=db,
+        health_report_id=report_id,
+        status=payload.status,
+        confirmed_condition_name=payload.confirmed_condition,
+    )
+
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    expert = (
+        db.query(Farmer)
+        .filter(Farmer.id == payload.expert_id)
+        .first()
+    )
+
+    if not expert:
+        raise HTTPException(status_code=404, detail="Expert (farmer) not found.")
+
+    confirmed_condition = result["confirmed_condition"]
+
+    validation = ExpertValidation(
+        health_report_id=report_id,
+        expert_id=payload.expert_id,
+        confirmed_condition_id=(
+            confirmed_condition.id if confirmed_condition else None
+        ),
+        status=result["status"],
+        comments=payload.comments,
+    )
+
+    db.add(validation)
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database operation failed: {str(e)}",
+        )
+
+    db.refresh(validation)
+
+    return {
+        "message": "Expert validation recorded.",
+        "validation": serialize_validation(db, validation),
+    }
+
+
+@app.get("/health-reports/{report_id}/expert-validation")
+def get_expert_validations(
+    report_id: int,
+    db: Session = Depends(get_db)
+):
+
+    report = (
+        db.query(HealthReport)
+        .filter(HealthReport.id == report_id)
+        .first()
+    )
+
+    if not report:
+        raise HTTPException(status_code=404, detail="Health report not found.")
+
+    validations = _build_expert_validations_for_report(db, report_id)
+
+    return {
+        "health_report_id": report_id,
+        "total_validations": len(validations),
+        "validations": validations,
+    }
+
+
+# ============================================================
+# EXPERT REVIEW QUEUE
+# ============================================================
+
+@app.get("/expert-review/queue")
+def get_expert_review_queue(
+    district: str | None = None,
+    limit: int = 50,
+    include_reviewed: bool = False,
+    db: Session = Depends(get_db)
+):
+    return build_review_queue(
+        db=db,
+        district=district,
+        limit=limit,
+        include_reviewed=include_reviewed,
+    )
+
+# ============================================================
+# GEOSPATIAL HOTSPOTS
+# ============================================================
+
+@app.get("/hotspots")
+def get_hotspots(
+    condition: str | None = None,
+    days: int = 14,
+    radius_km: float = 5.0,
+    min_reports: int = 3,
+    district: str | None = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Return all active hotspot clusters.
+
+    A hotspot is a group of >= min_reports reports of the same
+    condition within radius_km of each other, within the last
+    `days` days.
+
+    Computed live. Nothing is persisted.
+    """
+
+    hotspots = find_hotspots(
+        db=db,
+        condition=condition,
+        days=days,
+        radius_km=radius_km,
+        min_reports=min_reports,
+        district=district,
+    )
+
+    return {
+        "filters": {
+            "condition": condition,
+            "days": days,
+            "radius_km": radius_km,
+            "min_reports": min_reports,
+            "district": district,
+        },
+        "total_hotspots": len(hotspots),
+        "hotspots": hotspots,
+    }
+
+
+@app.get("/hotspots/near")
+def get_hotspots_near(
+    latitude: float,
+    longitude: float,
+    radius_km: float = 10.0,
+    days: int = 14,
+    min_reports: int = 3,
+    db: Session = Depends(get_db)
+):
+    """
+    Return hotspots whose cluster center is within radius_km
+    of the given point.
+
+    Useful for a "what's happening around my farm" panel.
+    """
+
+    hotspots = find_hotspots(
+        db=db,
+        days=days,
+        radius_km=radius_km,
+        min_reports=min_reports,
+    )
+
+    # Filter to hotspots whose center is within the search radius
+    from hotspots import haversine_km
+
+    nearby = []
+
+    for hotspot in hotspots:
+
+        center = hotspot["center"]
+
+        distance = haversine_km(
+            latitude,
+            longitude,
+            center["latitude"],
+            center["longitude"],
+        )
+
+        if distance <= radius_km:
+
+            hotspot_with_distance = dict(hotspot)
+            hotspot_with_distance["distance_from_query_km"] = round(
+                distance, 2
+            )
+
+            nearby.append(hotspot_with_distance)
+
+    nearby.sort(key=lambda h: h["distance_from_query_km"])
+
+    return {
+        "query": {
+            "latitude": latitude,
+            "longitude": longitude,
+            "radius_km": radius_km,
+            "days": days,
+            "min_reports": min_reports,
+        },
+        "total_hotspots": len(nearby),
+        "hotspots": nearby,
     }
