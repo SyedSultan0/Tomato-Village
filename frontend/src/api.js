@@ -14,8 +14,8 @@ export default api
 export const apiHealth = () => api.get('/health')
 
 // Farmer flow
-export const createHealthReport = (formData) =>
-  api.post('/health-reports', formData)
+export const createHealthReport = (formData, config = {}) =>
+  api.post('/health-reports', formData, config)
 
 // Reports
 export const getHealthReport = (reportId) =>
