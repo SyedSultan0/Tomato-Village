@@ -4,13 +4,16 @@
 #
 # Loads the fast.ai tomato classifier.
 #
-# In production (Render), the .pkl file isn't committed to
-# the repo — it's downloaded from Hugging Face on first start.
-# In local dev, if the file is already present, no download
-# happens.
-#
-# Set MODEL_URL in .env or Render env vars to override the
-# default. If empty, the download is skipped.
+# Design notes:
+#   - The model file is NOT committed to the repo (it's 103 MB).
+#   - On deployment, it's downloaded from Hugging Face on first
+#     prediction request, not at import time.
+#   - Lazy-loading matters for Render: if we load at import time,
+#     uvicorn doesn't bind to its port until the model is ready.
+#     Render's port scanner times out after ~90 seconds and kills
+#     the deploy. Loading lazily lets uvicorn bind in ~5 seconds.
+#   - Locally, if the .pkl is already next to this file, no
+#     download happens.
 # ============================================================
 
 import os
@@ -33,13 +36,17 @@ DEFAULT_MODEL_URL = (
 MODEL_URL = os.getenv("MODEL_URL", DEFAULT_MODEL_URL)
 
 
+# ============================================================
+# DOWNLOAD
+# ============================================================
+
 def _download_model(url: str, dest: Path) -> None:
     """
     Stream-download the model file to `dest`.
     Handles the ~103 MB file without loading it all in memory.
     """
 
-    print(f"Model not found at {dest}. Downloading from {url}...")
+    print(f"[model] Not found at {dest}. Downloading from {url}...")
 
     tmp = dest.with_suffix(dest.suffix + ".part")
 
@@ -47,7 +54,7 @@ def _download_model(url: str, dest: Path) -> None:
         "GET",
         url,
         follow_redirects=True,
-        timeout=httpx.Timeout(300.0, connect=15.0),
+        timeout=httpx.Timeout(600.0, connect=30.0),
     ) as response:
 
         response.raise_for_status()
@@ -62,28 +69,52 @@ def _download_model(url: str, dest: Path) -> None:
 
                 if total:
                     pct = (downloaded / total) * 100
-                    print(f"  {pct:5.1f}%  {downloaded/1e6:.1f} MB")
+                    # Print less often to keep logs clean
+                    if downloaded % (10 * 1024 * 1024) < (1024 * 1024):
+                        print(f"[model]   {pct:5.1f}%  {downloaded/1e6:.1f} MB")
 
     tmp.rename(dest)
-
-    print(f"Model downloaded to {dest}")
+    print(f"[model] Downloaded to {dest} ({downloaded/1e6:.1f} MB)")
 
 
 def _ensure_model() -> None:
     if MODEL_PATH.exists() and MODEL_PATH.stat().st_size > 0:
+        print(f"[model] Found existing model at {MODEL_PATH}")
         return
 
     if not MODEL_URL:
-        raise RuntimeError(
-            f"Model file missing and MODEL_URL is not set."
-        )
+        raise RuntimeError("Model file missing and MODEL_URL is not set.")
 
     _download_model(MODEL_URL, MODEL_PATH)
 
 
-_ensure_model()
-learn = load_learner(MODEL_PATH)
+# ============================================================
+# LAZY LEARNER
+# ============================================================
 
+_learn = None
+
+
+def _get_learn():
+    """
+    Lazy-load the model on first prediction.
+
+    This lets FastAPI/uvicorn bind to its port immediately so
+    platforms like Render see the service as up before the model
+    download + load completes.
+    """
+    global _learn
+    if _learn is None:
+        _ensure_model()
+        print("[model] Loading learner...")
+        _learn = load_learner(MODEL_PATH)
+        print("[model] Learner ready.")
+    return _learn
+
+
+# ============================================================
+# PUBLIC
+# ============================================================
 
 def predict(image_bytes, crop_name="Tomato"):
     """
@@ -92,6 +123,8 @@ def predict(image_bytes, crop_name="Tomato"):
     Returns:
         { "disease": str, "confidence": float }
     """
+
+    learn = _get_learn()
 
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
