@@ -375,21 +375,32 @@ function ReportDetail({ report, onReviewed }) {
       )}
 
       {/* Verdict form */}
-      <section className="rounded-lg border-2 border-emerald-800/60 bg-slate-900 p-5">
-        <h3 className="text-sm uppercase tracking-wide text-emerald-400 mb-3">
+       {/* Verdict form */}
+      {/* Verdict form */}
+      <section
+        className="card p-6"
+        style={{
+          borderColor: 'rgba(193, 68, 45, 0.28)',
+          borderWidth: 2,
+        }}
+      >
+        <h3
+          className="text-xs uppercase tracking-wider mb-4 font-semibold"
+          style={{ color: 'var(--tomato-deep)' }}
+        >
           Submit verdict
         </h3>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-4">
 
           <label className="block">
-            <span className="block text-xs text-slate-400 mb-1">
+            <span className="label">
               Verdict
             </span>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-sm"
+              className="input"
             >
               {VERDICT_OPTIONS.map((v) => (
                 <option key={v.value} value={v.value}>
@@ -401,7 +412,7 @@ function ReportDetail({ report, onReviewed }) {
 
           {(status === 'CONFIRMED' || status === 'CORRECTED') && (
             <label className="block">
-              <span className="block text-xs text-slate-400 mb-1">
+              <span className="label">
                 {status === 'CONFIRMED'
                   ? 'Confirm the condition'
                   : 'Correct to which condition?'}
@@ -409,7 +420,7 @@ function ReportDetail({ report, onReviewed }) {
               <select
                 value={confirmedCondition}
                 onChange={(e) => setConfirmedCondition(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-sm"
+                className="input"
               >
                 {CONDITION_OPTIONS.map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -419,15 +430,16 @@ function ReportDetail({ report, onReviewed }) {
           )}
 
           <label className="block">
-            <span className="block text-xs text-slate-400 mb-1">
+            <span className="label">
               Comments (optional)
             </span>
             <textarea
               value={comments}
               onChange={(e) => setComments(e.target.value)}
-              rows={2}
+              rows={3}
               placeholder="e.g. Confirmed on field visit."
-              className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-2 text-sm"
+              className="input"
+              style={{ resize: 'vertical', minHeight: 72 }}
             />
           </label>
 
@@ -436,10 +448,7 @@ function ReportDetail({ report, onReviewed }) {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full py-2 rounded-md font-medium
-                       bg-emerald-600 hover:bg-emerald-500
-                       disabled:bg-slate-700 disabled:cursor-not-allowed
-                       text-white transition"
+            className="btn-primary w-full justify-center"
           >
             {submitting ? 'Submitting…' : 'Submit verdict'}
           </button>
