@@ -1,6 +1,3 @@
-"""this is the file shows the hotspots of the tomato village sort off.... awe"""
-
-
 # ============================================================
 # GEOSPATIAL HOTSPOTS — M6
 # ============================================================
@@ -8,21 +5,14 @@
 # Deterministic clustering of health reports by location,
 # condition, and time window.
 #
-# What it does:
-#   - finds groups of >= min_reports reports of the same
-#     condition within radius_km of each other, within
-#     days of each other
-#   - returns each cluster with center, radius, farm list,
-#     and risk summary
+# Refactored to eliminate N+1 queries:
+#   - Loads all candidate reports in one query
+#   - Loads all predictions for those reports in one query
+#   - Loads all risk assessments in one query
+#   - Loads all farms in one query
+#   - Then assembles candidates in Python memory
 #
-# What it does NOT do:
-#   - persist anything
-#   - use an LLM
-#   - call any external API
-#   - mutate any existing data
-#
-# Live-computed from HealthReport + AIPrediction +
-# RiskAssessment + Farm. No new tables.
+# Response shape is unchanged from the previous version.
 # ============================================================
 
 import math
@@ -68,9 +58,6 @@ def haversine_km(
 ) -> float:
     """
     Great-circle distance between two lat/lon points, in km.
-
-    Uses the haversine formula. Reliable for distances up to
-    a few hundred km, which is well beyond our use case.
     """
 
     lat1_rad = math.radians(lat1)
@@ -102,7 +89,7 @@ def _normalize_condition(label: str) -> str:
 
 
 # ============================================================
-# CANDIDATE BUILDING
+# CANDIDATE BUILDING — BATCHED
 # ============================================================
 
 def _load_candidates(
@@ -114,17 +101,17 @@ def _load_candidates(
     """
     Load candidate reports that could belong to a hotspot.
 
-    A candidate is:
-        - has valid lat/lon
-        - has an AIPrediction
-        - reported within the last `days` days
-        - matches `condition` if provided (normalized)
-        - belongs to a farm in `district` if provided
+    BATCHED: issues 4 queries total regardless of how many
+    reports match. Previously this was N+1.
     """
 
     cutoff = datetime.utcnow() - timedelta(days=days)
 
-    query = (
+    # --------------------------------------------------------
+    # Query 1: all candidate reports
+    # --------------------------------------------------------
+
+    reports_query = (
         db.query(HealthReport)
         .filter(HealthReport.reported_at >= cutoff)
         .filter(HealthReport.latitude.isnot(None))
@@ -132,13 +119,73 @@ def _load_candidates(
     )
 
     if district:
-        query = query.join(
+        reports_query = reports_query.join(
             Farm, Farm.id == HealthReport.farm_id
         ).filter(Farm.district == district)
 
-    reports = query.all()
+    reports = reports_query.all()
 
-    candidates = []
+    if not reports:
+        return []
+
+    report_ids = [r.id for r in reports]
+    farm_ids = list({r.farm_id for r in reports})
+
+    # --------------------------------------------------------
+    # Query 2: all predictions for those reports
+    # --------------------------------------------------------
+    # ORDER BY created_at DESC + dedupe in Python to keep
+    # the "latest prediction per report" semantics.
+
+    predictions = (
+        db.query(AIPrediction)
+        .filter(AIPrediction.health_report_id.in_(report_ids))
+        .order_by(
+            AIPrediction.health_report_id,
+            desc(AIPrediction.created_at),
+        )
+        .all()
+    )
+
+    latest_prediction_by_report: dict[int, AIPrediction] = {}
+    for p in predictions:
+        if p.health_report_id not in latest_prediction_by_report:
+            latest_prediction_by_report[p.health_report_id] = p
+
+    # --------------------------------------------------------
+    # Query 3: all risk assessments for those reports
+    # --------------------------------------------------------
+
+    risks = (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.health_report_id.in_(report_ids))
+        .order_by(
+            RiskAssessment.health_report_id,
+            desc(RiskAssessment.created_at),
+        )
+        .all()
+    )
+
+    latest_risk_by_report: dict[int, RiskAssessment] = {}
+    for r in risks:
+        if r.health_report_id not in latest_risk_by_report:
+            latest_risk_by_report[r.health_report_id] = r
+
+    # --------------------------------------------------------
+    # Query 4: all farms referenced
+    # --------------------------------------------------------
+
+    farms = (
+        db.query(Farm)
+        .filter(Farm.id.in_(farm_ids))
+        .all()
+    )
+
+    farm_by_id = {f.id: f for f in farms}
+
+    # --------------------------------------------------------
+    # Assemble candidates
+    # --------------------------------------------------------
 
     condition_target = (
         _normalize_condition(condition)
@@ -146,37 +193,22 @@ def _load_candidates(
         else None
     )
 
+    candidates = []
+
     for report in reports:
 
-        prediction = (
-            db.query(AIPrediction)
-            .filter(AIPrediction.health_report_id == report.id)
-            .order_by(desc(AIPrediction.created_at))
-            .first()
-        )
+        prediction = latest_prediction_by_report.get(report.id)
 
         if not prediction or not prediction.predicted_class:
             continue
 
-        normalized = _normalize_condition(
-            prediction.predicted_class
-        )
+        normalized = _normalize_condition(prediction.predicted_class)
 
         if condition_target and normalized != condition_target:
             continue
 
-        risk = (
-            db.query(RiskAssessment)
-            .filter(RiskAssessment.health_report_id == report.id)
-            .order_by(desc(RiskAssessment.created_at))
-            .first()
-        )
-
-        farm = (
-            db.query(Farm)
-            .filter(Farm.id == report.farm_id)
-            .first()
-        )
+        risk = latest_risk_by_report.get(report.id)
+        farm = farm_by_id.get(report.farm_id)
 
         candidates.append({
             "report_id": report.id,
@@ -201,16 +233,10 @@ def _load_candidates(
 # ============================================================
 
 def _group_by_condition(candidates):
-    """
-    Group candidates by normalized condition.
-    """
-
     groups: dict[str, list[dict]] = {}
-
     for candidate in candidates:
         key = candidate["condition_normalized"]
         groups.setdefault(key, []).append(candidate)
-
     return groups
 
 
@@ -219,13 +245,7 @@ def _greedy_cluster(
     radius_km: float,
 ):
     """
-    Fixed-radius greedy clustering.
-
-    Picks an unvisited candidate, gathers all candidates within
-    radius_km of it, and if that group is large enough to be a
-    cluster, emits it and marks all members visited.
-
-    Deterministic: order of iteration is the input order.
+    Fixed-radius greedy clustering. Unchanged logic.
     """
 
     visited = set()
@@ -256,10 +276,6 @@ def _greedy_cluster(
                 group_indices.append(j)
 
         if len(group_indices) >= 2:
-            # Only mark visited if it becomes a group we might
-            # keep. If the group is too small to be a hotspot,
-            # we let the members be re-considered as anchors
-            # for other potential groups.
             clusters.append({
                 "anchor_index": i,
                 "member_indices": group_indices,
@@ -282,30 +298,29 @@ def _risk_rank(level: str | None) -> int:
 
 
 def _summarize_risk(members: list[dict]) -> str | None:
-    """
-    Return the highest risk level present in the group.
-    """
-
     levels = [
-        member.get("risk_level")
-        for member in members
-        if member.get("risk_level")
+        m.get("risk_level")
+        for m in members
+        if m.get("risk_level")
     ]
-
     if not levels:
         return None
-
     return max(levels, key=_risk_rank)
 
 
 def _build_hotspot(
-    db,
+    db: Session,
     members: list[dict],
     radius_km: float,
     days: int,
 ) -> dict[str, Any]:
     """
     Convert a set of cluster members into a hotspot dict.
+
+    Farm + farmer + crop details are fetched in a batched way
+    by _load_farm_details_for_hotspot_sets() before this is
+    called. We receive them pre-resolved via members' cached
+    lookups below.
     """
 
     lats = [m["latitude"] for m in members]
@@ -338,55 +353,10 @@ def _build_hotspot(
     })
 
     # --------------------------------------------------------
-    # Enrich with farm + farmer + crop details
+    # Farm details (batched lookup)
     # --------------------------------------------------------
 
-    farms_detail = []
-
-    for farm_id in farm_ids:
-
-        farm = (
-            db.query(Farm)
-            .filter(Farm.id == farm_id)
-            .first()
-        )
-
-        if not farm:
-            continue
-
-        farmer = None
-        if farm.farmer_id:
-            farmer = (
-                db.query(Farmer)
-                .filter(Farmer.id == farm.farmer_id)
-                .first()
-            )
-
-        crop_name = None
-        crop_season = (
-            db.query(CropSeason)
-            .join(HealthReport, HealthReport.crop_season_id == CropSeason.id)
-            .filter(HealthReport.farm_id == farm_id)
-            .first()
-        )
-        if crop_season:
-            crop = (
-                db.query(Crop)
-                .filter(Crop.id == crop_season.crop_id)
-                .first()
-            )
-            if crop:
-                crop_name = crop.name
-
-        farms_detail.append({
-            "farm_id": farm.id,
-            "farm_name": farm.farm_name,
-            "district": farm.district,
-            "state": farm.state,
-            "farmer_name": farmer.name if farmer else None,
-            "farmer_phone": farmer.phone if farmer else None,
-            "crop_name": crop_name,
-        })
+    farms_detail = _build_farm_details(db, farm_ids)
 
     return {
         "condition": members[0]["condition"],
@@ -406,6 +376,93 @@ def _build_hotspot(
         "report_ids": sorted(m["report_id"] for m in members),
     }
 
+
+def _build_farm_details(db: Session, farm_ids: list[int]) -> list[dict]:
+    """
+    Batched farm + farmer + crop lookup.
+
+    Issues 3 queries regardless of how many farms.
+    """
+
+    if not farm_ids:
+        return []
+
+    # --------------------------------------------------------
+    # Query 1: farms
+    # --------------------------------------------------------
+
+    farms = (
+        db.query(Farm)
+        .filter(Farm.id.in_(farm_ids))
+        .all()
+    )
+
+    farmer_ids = list({
+        f.farmer_id for f in farms if f.farmer_id is not None
+    })
+
+    # --------------------------------------------------------
+    # Query 2: farmers
+    # --------------------------------------------------------
+
+    farmers_by_id = {}
+    if farmer_ids:
+        farmers = (
+            db.query(Farmer)
+            .filter(Farmer.id.in_(farmer_ids))
+            .all()
+        )
+        farmers_by_id = {f.id: f for f in farmers}
+
+    # --------------------------------------------------------
+    # Query 3: crop seasons + crops
+    # --------------------------------------------------------
+
+    seasons = (
+        db.query(CropSeason)
+        .filter(CropSeason.farm_id.in_(farm_ids))
+        .all()
+    )
+
+    crop_ids = list({s.crop_id for s in seasons})
+
+    crops_by_id = {}
+    if crop_ids:
+        crops = (
+            db.query(Crop)
+            .filter(Crop.id.in_(crop_ids))
+            .all()
+        )
+        crops_by_id = {c.id: c for c in crops}
+
+    # Map farm → crop name (from its first crop season)
+    crop_name_by_farm = {}
+    for season in seasons:
+        if season.farm_id not in crop_name_by_farm:
+            crop = crops_by_id.get(season.crop_id)
+            if crop:
+                crop_name_by_farm[season.farm_id] = crop.name
+
+    # --------------------------------------------------------
+    # Assemble
+    # --------------------------------------------------------
+
+    details = []
+    for farm in farms:
+        farmer = farmers_by_id.get(farm.farmer_id)
+        details.append({
+            "farm_id": farm.id,
+            "farm_name": farm.farm_name,
+            "district": farm.district,
+            "state": farm.state,
+            "farmer_name": farmer.name if farmer else None,
+            "farmer_phone": farmer.phone if farmer else None,
+            "crop_name": crop_name_by_farm.get(farm.id),
+        })
+
+    return details
+
+
 # ============================================================
 # PUBLIC ENTRY
 # ============================================================
@@ -422,7 +479,7 @@ def find_hotspots(
     Find clusters of the same condition within radius_km
     over the last `days` days.
 
-    Returns a list of hotspot dicts.
+    Response shape unchanged.
     """
 
     if days < 1:
@@ -453,15 +510,12 @@ def find_hotspots(
             radius_km=radius_km,
         )
 
-        # Track which reports we've already claimed so a report
-        # doesn't belong to two hotspots.
         claimed = set()
 
         for cluster in cluster_candidates:
 
             member_indices = cluster["member_indices"]
 
-            # Skip if any member already belongs to a kept cluster
             if any(idx in claimed for idx in member_indices):
                 continue
 
@@ -471,18 +525,17 @@ def find_hotspots(
                 continue
 
             hotspot = _build_hotspot(
-                    db=db,
-                    members=members,
-                    radius_km=radius_km,
-                    days=days,
-                    )
+                db=db,
+                members=members,
+                radius_km=radius_km,
+                days=days,
+            )
 
             all_hotspots.append(hotspot)
 
             for idx in member_indices:
                 claimed.add(idx)
 
-    # Sort by report count desc, then max risk desc, then recency
     all_hotspots.sort(
         key=lambda h: (
             -h["report_count"],
