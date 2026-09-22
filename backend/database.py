@@ -27,7 +27,11 @@ DATABASE_URL = os.getenv(
     "postgresql://postgres:sultan@localhost:5432/sih_crop_health"
 )
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,       # Test connections before using them
+    pool_recycle=300,
+                       )
 
 Base = declarative_base()
 
