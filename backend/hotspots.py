@@ -34,7 +34,10 @@ from sqlalchemy.orm import Session
 
 from database import (
     AIPrediction,
+    Crop,
+    CropSeason,
     Farm,
+    Farmer,
     HealthReport,
     RiskAssessment,
 )
@@ -296,6 +299,7 @@ def _summarize_risk(members: list[dict]) -> str | None:
 
 
 def _build_hotspot(
+    db,
     members: list[dict],
     radius_km: float,
     days: int,
@@ -333,6 +337,57 @@ def _build_hotspot(
         m["district"] for m in members if m["district"]
     })
 
+    # --------------------------------------------------------
+    # Enrich with farm + farmer + crop details
+    # --------------------------------------------------------
+
+    farms_detail = []
+
+    for farm_id in farm_ids:
+
+        farm = (
+            db.query(Farm)
+            .filter(Farm.id == farm_id)
+            .first()
+        )
+
+        if not farm:
+            continue
+
+        farmer = None
+        if farm.farmer_id:
+            farmer = (
+                db.query(Farmer)
+                .filter(Farmer.id == farm.farmer_id)
+                .first()
+            )
+
+        crop_name = None
+        crop_season = (
+            db.query(CropSeason)
+            .join(HealthReport, HealthReport.crop_season_id == CropSeason.id)
+            .filter(HealthReport.farm_id == farm_id)
+            .first()
+        )
+        if crop_season:
+            crop = (
+                db.query(Crop)
+                .filter(Crop.id == crop_season.crop_id)
+                .first()
+            )
+            if crop:
+                crop_name = crop.name
+
+        farms_detail.append({
+            "farm_id": farm.id,
+            "farm_name": farm.farm_name,
+            "district": farm.district,
+            "state": farm.state,
+            "farmer_name": farmer.name if farmer else None,
+            "farmer_phone": farmer.phone if farmer else None,
+            "crop_name": crop_name,
+        })
+
     return {
         "condition": members[0]["condition"],
         "report_count": len(members),
@@ -345,11 +400,11 @@ def _build_hotspot(
         "earliest_report": earliest,
         "latest_report": latest,
         "farm_ids": farm_ids,
+        "farms": farms_detail,
         "districts": districts,
         "max_risk_level": _summarize_risk(members),
         "report_ids": sorted(m["report_id"] for m in members),
     }
-
 
 # ============================================================
 # PUBLIC ENTRY
@@ -416,10 +471,11 @@ def find_hotspots(
                 continue
 
             hotspot = _build_hotspot(
-                members=members,
-                radius_km=radius_km,
-                days=days,
-            )
+                    db=db,
+                    members=members,
+                    radius_km=radius_km,
+                    days=days,
+                    )
 
             all_hotspots.append(hotspot)
 

@@ -31,6 +31,7 @@ from database import (
     HealthReport,
     AIPrediction,
     RiskAssessment,
+    Advisory,
 )
 
 
@@ -176,6 +177,35 @@ def seed(db) -> dict:
             )
             db.add(risk)
             summary["risk_created"] += 1
+
+            # ----------------------------------------------------
+            # Advisory (so officer view + farmer view look complete)
+            # ----------------------------------------------------
+
+            try:
+                from advisory_engine import generate_advisory
+
+                advisory_result = generate_advisory(
+                    disease=condition,
+                    risk_level=risk_level,
+                    confidence=0.95,
+                    weather_snapshot={},
+                )
+
+                advisory = Advisory(
+                    health_report_id=report.id,
+                    language="English",
+                    risk_level=risk_level,
+                    advisory_text=advisory_result["summary"],
+                    model_name=advisory_result["engine"]["name"],
+                    model_version=advisory_result["engine"]["version"],
+                    sources=advisory_result["sources"],
+                )
+                db.add(advisory)
+                summary["advisories_created"] = summary.get("advisories_created", 0) + 1
+
+            except Exception as e:
+                print(f"Advisory skipped for report {report.id}: {e}")
 
     return summary
 
