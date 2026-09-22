@@ -13,11 +13,9 @@ export default api
 
 export const apiHealth = () => api.get('/health')
 
-// Farmer flow
 export const createHealthReport = (formData, config = {}) =>
   api.post('/health-reports', formData, config)
 
-// Reports
 export const getHealthReport = (reportId) =>
   api.get(`/health-reports/${reportId}`)
 
@@ -30,25 +28,21 @@ export const getReportFollowUps = (reportId) =>
 export const scheduleFollowUp = (reportId, payload) =>
   api.post(`/health-reports/${reportId}/follow-up`, payload)
 
-// Expert validation
 export const submitExpertValidation = (reportId, payload) =>
   api.post(`/health-reports/${reportId}/expert-validation`, payload)
 
 export const getExpertValidations = (reportId) =>
   api.get(`/health-reports/${reportId}/expert-validation`)
 
-// Officer queue
 export const getOfficerQueue = (params = {}) =>
   api.get('/expert-review/queue', { params })
 
-// Hotspots
 export const getHotspots = (params = {}) =>
   api.get('/hotspots', { params })
 
 export const getHotspotsNear = (params) =>
   api.get('/hotspots/near', { params })
 
-// Reference data
 export const createFarmer = (payload) => api.post('/farmers', payload)
 export const createFarm = (payload) => api.post('/farms', payload)
 export const createCrop = (payload) => api.post('/crops', payload)
