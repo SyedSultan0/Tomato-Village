@@ -1,3 +1,5 @@
+import os
+from dotenv import load_dotenv
 from sqlalchemy import (
     create_engine,
     Column,
@@ -18,7 +20,12 @@ from datetime import datetime
 # DATABASE CONNECTION
 # ============================================================
 
-DATABASE_URL = "postgresql://postgres:sultan@localhost:5432/sih_crop_health"
+load_dotenv()
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres:sultan@localhost:5432/sih_crop_health"
+)
 
 engine = create_engine(DATABASE_URL)
 
@@ -31,6 +38,8 @@ SessionLocal = sessionmaker(
     autoflush=False,
     bind=engine
 )
+
+
 # ============================================================
 # 1. FARMERS
 # ============================================================
@@ -256,10 +265,6 @@ class AIPrediction(Base):
 
 # ============================================================
 # 11. WEATHER RECORDS
-# ============================================================
-
-# ============================================================
-# 11. WEATHER RECORDS
 #     Weather + Agricultural Environment Data
 # ============================================================
 
@@ -297,6 +302,8 @@ class WeatherRecord(Base):
         DateTime,
         default=datetime.utcnow
     )
+
+
 # ============================================================
 # 12. RISK ASSESSMENTS
 # ============================================================
@@ -510,6 +517,7 @@ class KnowledgeChunk(Base):
     embedding_reference = Column(String(255))
 
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
 # ============================================================
 # 20. ADVISORIES
