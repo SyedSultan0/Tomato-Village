@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-multipart
+sqlalchemy
+psycopg2-binary
+pydantic
+python-dotenv
+httpx
+fastai
+torch
+torchvision
+pillow
+google-genai
+pytest
